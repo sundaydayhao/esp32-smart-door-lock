@@ -19,12 +19,15 @@
 #include "door_lock.h"
 #include "wifi_manager.h"
 #include "face_recognition.h"
+#include "nfc_reader.h"
+#include "event_manager.h"
 #include "esp_log.h"
 #include "esp_http_server.h"
 #include "esp_timer.h"
 #include "cJSON.h"
 #include <string.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <time.h>
 
 static const char *TAG = "HTTP_SERVER";
@@ -94,6 +97,70 @@ static int read_body(httpd_req_t *req, char *buf, size_t buf_size)
     return received;
 }
 
+static bool parse_user_id_uri(const char *uri, uint8_t *user_id,
+                              const char **subpath)
+{
+    const char *prefix = "/api/users/";
+    if (uri == NULL || user_id == NULL ||
+        strncmp(uri, prefix, strlen(prefix)) != 0) {
+        return false;
+    }
+
+    char *end = NULL;
+    long id = strtol(uri + strlen(prefix), &end, 10);
+    if (id <= 0 || id > 255 || end == uri + strlen(prefix)) {
+        return false;
+    }
+
+    *user_id = (uint8_t)id;
+    if (subpath != NULL) {
+        *subpath = end;
+    }
+    return true;
+}
+
+static int hex_value(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static bool parse_uid_hex(const char *hex_str, uint8_t *uid, uint8_t *uid_len)
+{
+    if (hex_str == NULL || uid == NULL || uid_len == NULL) {
+        return false;
+    }
+
+    uint8_t out[NFC_UID_MAX_LEN] = {0};
+    uint8_t count = 0;
+    int high = -1;
+
+    for (const char *p = hex_str; *p; p++) {
+        if (*p == ':' || *p == '-' || isspace((unsigned char)*p)) {
+            continue;
+        }
+
+        int val = hex_value(*p);
+        if (val < 0) return false;
+
+        if (high < 0) {
+            high = val;
+        } else {
+            if (count >= NFC_UID_MAX_LEN) return false;
+            out[count++] = (uint8_t)((high << 4) | val);
+            high = -1;
+        }
+    }
+
+    if (high >= 0 || count == 0) return false;
+
+    memcpy(uid, out, count);
+    *uid_len = count;
+    return true;
+}
+
 /* ============================================================
  * Web UI handler
  * ============================================================ */
@@ -146,6 +213,9 @@ static esp_err_t handler_status(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "enrolled_faces",
                             face_recog_get_enrolled_count());
 
+    /* NFC */
+    cJSON_AddBoolToObject(root, "nfc_ready", nfc_reader_is_ready());
+
     /* Uptime */
     cJSON_AddNumberToObject(root, "uptime_s",
                             (int)(esp_timer_get_time() / 1000000));
@@ -177,6 +247,16 @@ static esp_err_t handler_get_users(httpd_req_t *req)
         cJSON_AddNumberToObject(u, "auth_methods", users[i].auth_methods);
         cJSON_AddBoolToObject(u,   "has_face",     users[i].has_face);
         cJSON_AddNumberToObject(u, "fingerprint_id", users[i].fingerprint_id);
+        cJSON_AddBoolToObject(u,   "has_nfc_card", users[i].has_nfc_card);
+        cJSON_AddNumberToObject(u, "nfc_uid_len", users[i].nfc_uid_len);
+        if (users[i].has_nfc_card) {
+            char uid_hex[SDL_NFC_UID_MAX_LEN * 2 + 1] = {0};
+            nfc_uid_to_hex(users[i].nfc_uid, users[i].nfc_uid_len,
+                           uid_hex, sizeof(uid_hex));
+            cJSON_AddStringToObject(u, "nfc_uid", uid_hex);
+        } else {
+            cJSON_AddStringToObject(u, "nfc_uid", "");
+        }
         cJSON_AddNumberToObject(u, "access_count", users[i].access_count);
         cJSON_AddNumberToObject(u, "last_access",  (double)users[i].last_access);
         cJSON_AddNumberToObject(u, "created_at",   (double)users[i].created_at);
@@ -245,19 +325,28 @@ static esp_err_t handler_add_user(httpd_req_t *req)
 
 static esp_err_t handler_delete_user(httpd_req_t *req)
 {
-    /* Extract user ID from URI: /api/users/{id} */
-    const char *uri = req->uri;
-    const char *prefix = "/api/users/";
-    if (strncmp(uri, prefix, strlen(prefix)) != 0) {
+    uint8_t user_id = 0;
+    const char *subpath = NULL;
+    if (!parse_user_id_uri(req->uri, &user_id, &subpath)) {
         return send_error(req, 400, "Invalid URI");
     }
 
-    int user_id = atoi(uri + strlen(prefix));
-    if (user_id <= 0) {
-        return send_error(req, 400, "Invalid user ID");
+    if (strcmp(subpath, "/nfc") == 0) {
+        esp_err_t ret = user_mgmt_unbind_nfc_card(user_id);
+        if (ret == ESP_ERR_NOT_FOUND) {
+            return send_error(req, 404, "User not found");
+        }
+        if (ret != ESP_OK) {
+            return send_error(req, 500, "Failed to unbind NFC card");
+        }
+        return send_ok(req, "NFC card unbound");
     }
 
-    esp_err_t ret = user_mgmt_delete_user((uint8_t)user_id);
+    if (subpath[0] != '\0') {
+        return send_error(req, 404, "Unknown user subresource");
+    }
+
+    esp_err_t ret = user_mgmt_delete_user(user_id);
     if (ret == ESP_ERR_NOT_FOUND) {
         return send_error(req, 404, "User not found");
     }
@@ -266,9 +355,65 @@ static esp_err_t handler_delete_user(httpd_req_t *req)
     }
 
     /* Also delete face data */
-    face_recog_delete_user((uint8_t)user_id);
+    face_recog_delete_user(user_id);
 
     return send_ok(req, "User deleted");
+}
+
+/* ============================================================
+ * API: POST /api/users/{id}/nfc
+ * Body: {"uid":"04AABBCCDD"}
+ * ============================================================ */
+
+static esp_err_t handler_user_subresource_post(httpd_req_t *req)
+{
+    uint8_t user_id = 0;
+    const char *subpath = NULL;
+    if (!parse_user_id_uri(req->uri, &user_id, &subpath)) {
+        return send_error(req, 400, "Invalid URI");
+    }
+
+    if (strcmp(subpath, "/nfc") != 0) {
+        return send_error(req, 404, "Unknown user subresource");
+    }
+
+    char body[256];
+    if (read_body(req, body, sizeof(body)) < 0) {
+        return send_error(req, 400, "Invalid request body");
+    }
+
+    cJSON *json = cJSON_Parse(body);
+    if (json == NULL) {
+        return send_error(req, 400, "Invalid JSON");
+    }
+
+    cJSON *uid_j = cJSON_GetObjectItem(json, "uid");
+    if (!cJSON_IsString(uid_j)) {
+        cJSON_Delete(json);
+        return send_error(req, 400, "Missing or invalid 'uid' field");
+    }
+
+    uint8_t uid[SDL_NFC_UID_MAX_LEN] = {0};
+    uint8_t uid_len = 0;
+    if (!parse_uid_hex(uid_j->valuestring, uid, &uid_len)) {
+        cJSON_Delete(json);
+        return send_error(req, 400, "UID must be hex, e.g. 04AABBCCDD");
+    }
+    cJSON_Delete(json);
+
+    esp_err_t ret = user_mgmt_bind_nfc_card(user_id, uid, uid_len);
+    if (ret == ESP_ERR_NOT_FOUND) {
+        return send_error(req, 404, "User not found");
+    }
+    if (ret == ESP_ERR_INVALID_STATE) {
+        return send_error(req, 409, "NFC card already bound to another user");
+    }
+    if (ret != ESP_OK) {
+        return send_error(req, 500, "Failed to bind NFC card");
+    }
+
+    event_manager_post_auth(SDL_AUTH_EVENT_NFC_ENROLL_DONE, NULL);
+    return send_ok(req, "NFC card bound");
 }
 
 /* ============================================================
@@ -375,6 +520,7 @@ static const httpd_uri_t uri_handlers[] = {
     { .uri = "/api/status",        .method = HTTP_GET,    .handler = handler_status       },
     { .uri = "/api/users",         .method = HTTP_GET,    .handler = handler_get_users    },
     { .uri = "/api/users",         .method = HTTP_POST,   .handler = handler_add_user     },
+    { .uri = "/api/users/*",       .method = HTTP_POST,   .handler = handler_user_subresource_post },
     { .uri = "/api/users/*",       .method = HTTP_DELETE, .handler = handler_delete_user  },
     { .uri = "/api/door/unlock",   .method = HTTP_POST,   .handler = handler_door_unlock  },
     { .uri = "/api/door/lock",     .method = HTTP_POST,   .handler = handler_door_lock    },

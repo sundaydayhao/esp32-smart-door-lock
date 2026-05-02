@@ -419,6 +419,7 @@
             if (mask & 1) tags.push("Face");
             if (mask & 2) tags.push("Fingerprint");
             if (mask & 4) tags.push("PIN");
+            if (mask & 8) tags.push("NFC");
             return tags.length ? tags : ["None"];
         }
 
@@ -426,6 +427,7 @@
             if (method === 1) return "Face";
             if (method === 2) return "Fingerprint";
             if (method === 4) return "PIN";
+            if (method === 8) return "NFC";
             return "Unknown";
         }
 
@@ -455,6 +457,7 @@
             document.getElementById("system-meta").innerHTML =
                 `WiFi: ${status.wifi_connected ? status.ip_addr : "Offline"}<br>` +
                 `Camera: ${status.camera_ready ? "Ready" : "Unavailable"}<br>` +
+                `NFC: ${status.nfc_ready ? "Ready" : "Unavailable"}<br>` +
                 `Lockout: ${status.locked_out ? "Active" : "No"}<br>` +
                 `Total accesses: ${status.total_accesses ?? 0} | Total denials: ${status.total_denials ?? 0}`;
         }

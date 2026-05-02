@@ -18,12 +18,16 @@ extern "C" {
 #define SDL_USER_NAME_MAX_LEN       32      /* Maximum user name length */
 #define SDL_USER_FACE_FEAT_SIZE     512     /* Face feature vector size (bytes) */
 #define SDL_USER_ACCESS_LOG_MAX     50      /* Maximum access log entries */
+#define SDL_NFC_UID_MAX_LEN         10      /* Maximum ISO14443A UID length */
 
 /* Authentication method flags */
 #define SDL_AUTH_METHOD_FACE        (1 << 0)
 #define SDL_AUTH_METHOD_FINGERPRINT (1 << 1)
 #define SDL_AUTH_METHOD_PASSWORD    (1 << 2)
+#define SDL_AUTH_METHOD_NFC         (1 << 3)
 #define SDL_AUTH_METHOD_BOTH        (SDL_AUTH_METHOD_FACE | SDL_AUTH_METHOD_FINGERPRINT)
+#define SDL_AUTH_METHOD_ALL         (SDL_AUTH_METHOD_FACE | SDL_AUTH_METHOD_FINGERPRINT | \
+                                     SDL_AUTH_METHOD_PASSWORD | SDL_AUTH_METHOD_NFC)
 
 /* User role */
 typedef enum {
@@ -49,6 +53,9 @@ typedef struct {
     uint8_t          fingerprint_id;                /* Fingerprint template ID in sensor */
     bool             has_face;                      /* Whether face is enrolled */
     float            face_features[128];            /* Face feature vector */
+    bool             has_nfc_card;                  /* Whether an NFC card is bound */
+    uint8_t          nfc_uid[SDL_NFC_UID_MAX_LEN];   /* NFC card UID */
+    uint8_t          nfc_uid_len;                    /* NFC UID length */
     time_t           created_at;                    /* Creation timestamp */
     time_t           last_access;                   /* Last successful access timestamp */
     time_t           access_expire;                 /* Access expiry (0=never) */
@@ -126,6 +133,33 @@ esp_err_t user_mgmt_get_all_users(sdl_user_t *users, uint8_t *count,
  */
 esp_err_t user_mgmt_find_by_fingerprint(uint8_t fingerprint_id,
                                          sdl_user_t *user);
+
+/**
+ * @brief Bind an NFC card UID to a user
+ * @param user_id User ID
+ * @param uid NFC UID bytes
+ * @param uid_len NFC UID length
+ * @return ESP_OK on success
+ */
+esp_err_t user_mgmt_bind_nfc_card(uint8_t user_id, const uint8_t *uid,
+                                   uint8_t uid_len);
+
+/**
+ * @brief Remove the NFC card from a user
+ * @param user_id User ID
+ * @return ESP_OK on success
+ */
+esp_err_t user_mgmt_unbind_nfc_card(uint8_t user_id);
+
+/**
+ * @brief Find user by NFC UID
+ * @param uid NFC UID bytes
+ * @param uid_len NFC UID length
+ * @param user Output user structure
+ * @return ESP_OK on success, ESP_ERR_NOT_FOUND if not found
+ */
+esp_err_t user_mgmt_find_by_nfc_uid(const uint8_t *uid, uint8_t uid_len,
+                                     sdl_user_t *user);
 
 /**
  * @brief Update user's face features

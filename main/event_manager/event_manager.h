@@ -38,6 +38,10 @@ typedef enum {
     SDL_AUTH_EVENT_FINGER_FAILED,        /* Fingerprint recognition failed */
     SDL_AUTH_EVENT_PASSWORD_SUCCESS,     /* Password verification succeeded */
     SDL_AUTH_EVENT_PASSWORD_FAILED,      /* Password verification failed */
+    SDL_AUTH_EVENT_NFC_SUCCESS,          /* NFC card verification succeeded */
+    SDL_AUTH_EVENT_NFC_FAILED,           /* NFC card verification failed */
+    SDL_AUTH_EVENT_NFC_ENROLL_START,     /* NFC card enrollment started */
+    SDL_AUTH_EVENT_NFC_ENROLL_DONE,      /* NFC card enrollment completed */
     SDL_AUTH_EVENT_FINGER_ENROLL_START,  /* Fingerprint enrollment started */
     SDL_AUTH_EVENT_FINGER_ENROLL_DONE,   /* Fingerprint enrollment completed */
     SDL_AUTH_EVENT_LOCKOUT,              /* System locked out due to failed attempts */

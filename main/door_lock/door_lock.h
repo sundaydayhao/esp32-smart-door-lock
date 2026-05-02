@@ -29,6 +29,7 @@ typedef enum {
     DOOR_UNLOCK_SOURCE_FINGER,      /* Unlocked by fingerprint */
     DOOR_UNLOCK_SOURCE_REMOTE,      /* Unlocked remotely via WiFi */
     DOOR_UNLOCK_SOURCE_KEYPAD,      /* Unlocked by matrix keypad password */
+    DOOR_UNLOCK_SOURCE_NFC,         /* Unlocked by NFC card */
     DOOR_UNLOCK_SOURCE_MANUAL,      /* Unlocked manually (admin) */
     DOOR_UNLOCK_SOURCE_SCHEDULE,    /* Unlocked by schedule */
 } door_unlock_source_t;

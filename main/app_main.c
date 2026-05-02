@@ -16,10 +16,11 @@
  *
  * Hardware (ESP32-S3):
  *   - OV2640 camera (face recognition)
+ *   - 3x4 matrix keypad password unlock
  *   - AS608 fingerprint sensor (UART1)
+ *   - PN532 NFC card reader (I2C)
  *   - SSD1306 OLED display (I2C)
- *   - Relay/solenoid lock (GPIO38)
- *   - Buzzer (GPIO39), Green LED (GPIO40), Red LED (GPIO41)
+ *   - Relay/solenoid lock, buzzer, green/red LEDs
  */
 
 #include "app_main.h"
@@ -27,6 +28,7 @@
 #include "face_recognition.h"
 #include "fingerprint.h"
 #include "keypad.h"
+#include "nfc_reader.h"
 #include "door_lock.h"
 #include "user_management.h"
 #include "display.h"
@@ -55,6 +57,7 @@ static const char *TAG = "APP_MAIN";
 
 static TaskHandle_t  s_face_task_handle   = NULL;
 static TaskHandle_t  s_finger_task_handle = NULL;
+static TaskHandle_t  s_nfc_task_handle    = NULL;
 static TaskHandle_t  s_display_task_handle = NULL;
 static SemaphoreHandle_t s_auth_mutex     = NULL;
 
@@ -62,6 +65,7 @@ static SemaphoreHandle_t s_auth_mutex     = NULL;
 static struct {
     bool     face_module_ok;
     bool     finger_module_ok;
+    bool     nfc_module_ok;
     bool     keypad_ok;
     bool     display_ok;
     bool     wifi_ok;
@@ -123,6 +127,19 @@ static const display_config_t DISPLAY_CONFIG = {
     .rst_pin    = -1,
 };
 
+#if CONFIG_SDL_NFC_ENABLE
+static const nfc_reader_config_t NFC_CONFIG = {
+    .i2c_port    = CONFIG_SDL_NFC_I2C_PORT,
+    .sda_pin     = CONFIG_SDL_NFC_SDA_PIN,
+    .scl_pin     = CONFIG_SDL_NFC_SCL_PIN,
+    .i2c_freq_hz = CONFIG_SDL_NFC_I2C_FREQ_HZ,
+    .i2c_addr    = CONFIG_SDL_NFC_I2C_ADDR,
+    .reset_gpio  = CONFIG_SDL_NFC_RST_GPIO,
+    .irq_gpio    = CONFIG_SDL_NFC_IRQ_GPIO,
+    .command_timeout_ms = CONFIG_SDL_NFC_COMMAND_TIMEOUT_MS,
+};
+#endif
+
 #if CONFIG_SDL_KEYPAD_ENABLE
 static const keypad_config_t KEYPAD_CONFIG = {
     .row_gpios = {
@@ -156,6 +173,8 @@ static const char *auth_method_to_string(uint8_t auth_method)
             return "Fingerprint";
         case SDL_AUTH_METHOD_PASSWORD:
             return "PIN";
+        case SDL_AUTH_METHOD_NFC:
+            return "NFC";
         default:
             return "Unknown";
     }
@@ -190,6 +209,8 @@ static sdl_auth_event_id_t get_auth_success_event(uint8_t auth_method)
             return SDL_AUTH_EVENT_FINGER_SUCCESS;
         case SDL_AUTH_METHOD_PASSWORD:
             return SDL_AUTH_EVENT_PASSWORD_SUCCESS;
+        case SDL_AUTH_METHOD_NFC:
+            return SDL_AUTH_EVENT_NFC_SUCCESS;
         default:
             return SDL_AUTH_EVENT_FACE_SUCCESS;
     }
@@ -204,8 +225,42 @@ static sdl_auth_event_id_t get_auth_failure_event(uint8_t auth_method)
             return SDL_AUTH_EVENT_FINGER_FAILED;
         case SDL_AUTH_METHOD_PASSWORD:
             return SDL_AUTH_EVENT_PASSWORD_FAILED;
+        case SDL_AUTH_METHOD_NFC:
+            return SDL_AUTH_EVENT_NFC_FAILED;
         default:
             return SDL_AUTH_EVENT_FACE_FAILED;
+    }
+}
+
+static door_unlock_source_t get_unlock_source(uint8_t auth_method)
+{
+    switch (auth_method) {
+        case SDL_AUTH_METHOD_FACE:
+            return DOOR_UNLOCK_SOURCE_FACE;
+        case SDL_AUTH_METHOD_FINGERPRINT:
+            return DOOR_UNLOCK_SOURCE_FINGER;
+        case SDL_AUTH_METHOD_PASSWORD:
+            return DOOR_UNLOCK_SOURCE_KEYPAD;
+        case SDL_AUTH_METHOD_NFC:
+            return DOOR_UNLOCK_SOURCE_NFC;
+        default:
+            return DOOR_UNLOCK_SOURCE_MANUAL;
+    }
+}
+
+static const char *auth_method_display_name(uint8_t auth_method)
+{
+    switch (auth_method) {
+        case SDL_AUTH_METHOD_FACE:
+            return "Face Recognition";
+        case SDL_AUTH_METHOD_FINGERPRINT:
+            return "Fingerprint";
+        case SDL_AUTH_METHOD_PASSWORD:
+            return "Password";
+        case SDL_AUTH_METHOD_NFC:
+            return "NFC Card";
+        default:
+            return "Unknown";
     }
 }
 
@@ -353,9 +408,7 @@ static void handle_auth_success(uint8_t user_id, uint8_t auth_method,
 
     /* Grant access */
     ESP_LOGI(TAG, "Access GRANTED: user='%s' (ID=%d), method=%s, confidence=%d%%",
-             user.name, user_id,
-             auth_method == SDL_AUTH_METHOD_FACE ? "Face" : "Fingerprint",
-             confidence);
+             user.name, user_id, auth_method_to_string(auth_method), confidence);
 
     /* Clear failed attempts */
     user_mgmt_clear_failed_attempts();
@@ -364,16 +417,11 @@ static void handle_auth_success(uint8_t user_id, uint8_t auth_method,
     user_mgmt_record_access(user_id, auth_method, true, confidence);
 
     /* Show on display */
-    const char *method_str = (auth_method == SDL_AUTH_METHOD_FACE) ?
-                              "Face Recognition" : "Fingerprint";
-    display_show_access_granted(user.name, method_str);
+    display_show_access_granted(user.name, auth_method_display_name(auth_method));
 
     /* Unlock door */
-    door_unlock_source_t source = (auth_method == SDL_AUTH_METHOD_FACE) ?
-                                   DOOR_UNLOCK_SOURCE_FACE :
-                                   DOOR_UNLOCK_SOURCE_FINGER;
     auth_start_suppress_window();
-    door_lock_unlock(source, user_id);
+    door_lock_unlock(get_unlock_source(auth_method), user_id);
 
     /* Post auth event */
     sdl_auth_result_t auth_result = {
@@ -403,8 +451,13 @@ static void handle_auth_failure(uint8_t auth_method)
         door_lock_indicate_alarm();
         event_manager_post_auth(SDL_AUTH_EVENT_LOCKOUT, NULL);
     } else {
-        display_show_access_denied(auth_method == SDL_AUTH_METHOD_PASSWORD ?
-                                   "Wrong PIN" : "Not recognized");
+        const char *reason = "Not recognized";
+        if (auth_method == SDL_AUTH_METHOD_PASSWORD) {
+            reason = "Wrong PIN";
+        } else if (auth_method == SDL_AUTH_METHOD_NFC) {
+            reason = "Unknown card";
+        }
+        display_show_access_denied(reason);
         door_lock_indicate_denied();
         event_manager_post_auth(get_auth_failure_event(auth_method), NULL);
     }
@@ -608,6 +661,72 @@ static void fingerprint_task(void *arg)
 }
 
 /* ============================================================
+ * NFC task
+ * ============================================================ */
+
+#if CONFIG_SDL_NFC_ENABLE
+static void nfc_task(void *arg)
+{
+    (void)arg;
+    ESP_LOGI(TAG, "NFC task started");
+
+    TickType_t cooldown_until = 0;
+
+    while (1) {
+        if (!s_app.nfc_module_ok) {
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+
+        if (user_mgmt_is_locked_out()) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
+        if (xTaskGetTickCount() < cooldown_until) {
+            vTaskDelay(pdMS_TO_TICKS(CONFIG_SDL_NFC_POLL_INTERVAL_MS));
+            continue;
+        }
+
+        nfc_card_t card = {0};
+        esp_err_t ret = nfc_reader_poll(&card);
+        if (ret == ESP_ERR_NOT_FOUND || ret == ESP_ERR_TIMEOUT) {
+            vTaskDelay(pdMS_TO_TICKS(CONFIG_SDL_NFC_POLL_INTERVAL_MS));
+            continue;
+        }
+        if (ret != ESP_OK) {
+            ESP_LOGD(TAG, "NFC poll failed: %s", esp_err_to_name(ret));
+            vTaskDelay(pdMS_TO_TICKS(CONFIG_SDL_NFC_POLL_INTERVAL_MS));
+            continue;
+        }
+
+        char uid_hex[NFC_UID_MAX_LEN * 2 + 1] = {0};
+        nfc_uid_to_hex(card.uid, card.uid_len, uid_hex, sizeof(uid_hex));
+        ESP_LOGI(TAG, "NFC card detected: UID=%s", uid_hex);
+
+        if (s_app.display_ok) {
+            display_show_text("NFC Card", uid_hex, "Checking...", NULL);
+        }
+
+        if (xSemaphoreTake(s_auth_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            sdl_user_t user;
+            if (user_mgmt_find_by_nfc_uid(card.uid, card.uid_len, &user) == ESP_OK) {
+                handle_auth_success(user.id, SDL_AUTH_METHOD_NFC, 100);
+            } else {
+                handle_auth_failure(SDL_AUTH_METHOD_NFC);
+            }
+            xSemaphoreGive(s_auth_mutex);
+        } else {
+            ESP_LOGW(TAG, "Auth mutex busy, dropping NFC card");
+        }
+
+        cooldown_until = xTaskGetTickCount() +
+                         pdMS_TO_TICKS(CONFIG_SDL_NFC_CARD_COOLDOWN_MS);
+    }
+}
+#endif
+
+/* ============================================================
  * Display task
  * ============================================================ */
 
@@ -708,7 +827,7 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "===========================================");
     ESP_LOGI(TAG, "  Smart Door Lock System v1.0");
-    ESP_LOGI(TAG, "  ESP32-S3 | Face + Fingerprint Auth");
+    ESP_LOGI(TAG, "  ESP32-S3 custom board | Face + PIN + Finger + NFC");
     ESP_LOGI(TAG, "===========================================");
 
     esp_err_t ret;
@@ -723,12 +842,12 @@ void app_main(void)
     /* ---- Step 1: Event Manager ---- */
     ret = event_manager_init();
     ESP_ERROR_CHECK(ret);
-    ESP_LOGI(TAG, "[1/7] Event manager initialized");
+    ESP_LOGI(TAG, "[1/9] Event manager initialized");
 
     /* ---- Step 2: User Management ---- */
     ret = user_mgmt_init();
     ESP_ERROR_CHECK(ret);
-    ESP_LOGI(TAG, "[2/7] User management initialized (%d users)",
+    ESP_LOGI(TAG, "[2/9] User management initialized (%d users)",
              user_mgmt_get_user_count());
 
     /* ---- Step 3: Display ---- */
@@ -736,15 +855,15 @@ void app_main(void)
     if (ret == ESP_OK) {
         s_app.display_ok = true;
         display_show_text("Smart Door Lock", "Initializing...", NULL, NULL);
-        ESP_LOGI(TAG, "[3/7] Display initialized");
+        ESP_LOGI(TAG, "[3/9] Display initialized");
     } else {
-        ESP_LOGW(TAG, "[3/7] Display init failed (continuing without display)");
+        ESP_LOGW(TAG, "[3/9] Display init failed (continuing without display)");
     }
 
     /* ---- Step 4: Door Lock ---- */
     ret = door_lock_init(&DOOR_LOCK_CONFIG);
     ESP_ERROR_CHECK(ret);
-    ESP_LOGI(TAG, "[4/7] Door lock initialized");
+    ESP_LOGI(TAG, "[4/9] Door lock initialized");
 
 #if CONFIG_SDL_KEYPAD_ENABLE
     ret = keypad_init(&KEYPAD_CONFIG);
@@ -752,14 +871,28 @@ void app_main(void)
         keypad_register_callback(keypad_event_callback, NULL);
         keypad_reset_input(false);
         s_app.keypad_ok = true;
-        ESP_LOGI(TAG, "[4/7] Matrix keypad initialized");
+        ESP_LOGI(TAG, "[5/9] Matrix keypad initialized");
     } else {
-        ESP_LOGW(TAG, "[4/7] Matrix keypad init failed: %s",
+        ESP_LOGW(TAG, "[5/9] Matrix keypad init failed: %s",
                  esp_err_to_name(ret));
     }
 #endif
 
-    /* ---- Step 5: Face Recognition ---- */
+    /* ---- Step 6: NFC Reader ---- */
+#if CONFIG_SDL_NFC_ENABLE
+    ret = nfc_reader_init(&NFC_CONFIG);
+    if (ret == ESP_OK) {
+        s_app.nfc_module_ok = true;
+        ESP_LOGI(TAG, "[6/9] PN532 NFC reader initialized");
+    } else {
+        ESP_LOGW(TAG, "[6/9] PN532 NFC reader init failed: %s",
+                 esp_err_to_name(ret));
+    }
+#else
+    ESP_LOGI(TAG, "[6/9] NFC disabled in configuration");
+#endif
+
+    /* ---- Step 7: Face Recognition ---- */
     ret = face_recog_init(&CAMERA_CONFIG);
     if (ret == ESP_OK) {
         s_app.face_module_ok = true;
@@ -768,28 +901,28 @@ void app_main(void)
         face_recog_set_threshold(threshold);
         /* Load enrolled face features */
         load_face_features();
-        ESP_LOGI(TAG, "[5/7] Face recognition initialized (threshold=%.2f)",
+        ESP_LOGI(TAG, "[7/9] Face recognition initialized (threshold=%.2f)",
                  threshold);
     } else {
-        ESP_LOGW(TAG, "[5/7] Camera/face recognition init failed: %s",
+        ESP_LOGW(TAG, "[7/9] Camera/face recognition init failed: %s",
                  esp_err_to_name(ret));
     }
 
-    /* ---- Step 6: Fingerprint Sensor ---- */
+    /* ---- Step 8: Fingerprint Sensor ---- */
     ret = fingerprint_init(&FINGERPRINT_CONFIG);
     if (ret == ESP_OK) {
         s_app.finger_module_ok = true;
         fp_sys_params_t fp_params;
         if (fingerprint_read_params(&fp_params) == ESP_OK) {
-            ESP_LOGI(TAG, "[6/7] Fingerprint sensor: lib_size=%d, sec_level=%d",
+            ESP_LOGI(TAG, "[8/9] Fingerprint sensor: lib_size=%d, sec_level=%d",
                      fp_params.library_size, fp_params.security_level);
         }
     } else {
-        ESP_LOGW(TAG, "[6/7] Fingerprint sensor init failed: %s",
+        ESP_LOGW(TAG, "[8/9] Fingerprint sensor init failed: %s",
                  esp_err_to_name(ret));
     }
 
-    /* ---- Step 7: WiFi ---- */
+    /* ---- Step 9: WiFi ---- */
     wifi_mgr_config_t wifi_cfg = {
 #if CONFIG_SDL_WIFI_AP_MODE
         .mode        = WIFI_MGR_MODE_AP,
@@ -813,7 +946,7 @@ void app_main(void)
         ret = wifi_mgr_start();
         if (ret == ESP_OK) {
             s_app.wifi_ok = true;
-            ESP_LOGI(TAG, "[7/7] WiFi started");
+            ESP_LOGI(TAG, "[9/9] WiFi started");
 
             /* Start HTTP server */
             http_server_config_t http_cfg = {
@@ -828,7 +961,7 @@ void app_main(void)
             }
         }
     } else {
-        ESP_LOGW(TAG, "[7/7] WiFi init failed");
+        ESP_LOGW(TAG, "[9/9] WiFi init failed");
     }
 
     /* ---- System ready ---- */
@@ -836,6 +969,7 @@ void app_main(void)
     ESP_LOGI(TAG, "  System READY");
     ESP_LOGI(TAG, "  Face module:   %s", s_app.face_module_ok   ? "OK" : "FAIL");
     ESP_LOGI(TAG, "  Finger module: %s", s_app.finger_module_ok ? "OK" : "FAIL");
+    ESP_LOGI(TAG, "  NFC module:    %s", s_app.nfc_module_ok    ? "OK" : "FAIL");
     ESP_LOGI(TAG, "  Keypad:        %s", s_app.keypad_ok        ? "OK" : "FAIL");
     ESP_LOGI(TAG, "  Display:       %s", s_app.display_ok       ? "OK" : "FAIL");
     ESP_LOGI(TAG, "  WiFi:          %s", s_app.wifi_ok          ? "OK" : "FAIL");
@@ -875,6 +1009,21 @@ void app_main(void)
             0               /* Core 0 */
         );
     }
+
+    /* NFC task - runs on Core 0 */
+#if CONFIG_SDL_NFC_ENABLE
+    if (s_app.nfc_module_ok) {
+        xTaskCreatePinnedToCore(
+            nfc_task,
+            "nfc_task",
+            4096,
+            NULL,
+            3,
+            &s_nfc_task_handle,
+            0
+        );
+    }
+#endif
 
     /* Display task - runs on Core 0 */
     if (s_app.display_ok) {

@@ -11,7 +11,7 @@
 | 🎭 人脸识别 | OV2640 摄像头 + 特征向量匹配，支持最多 10 个用户 |
 | 👆 指纹识别 | AS608/R307/R503 指纹传感器，UART 通信，支持 127 个模板 |
 | 🔢 密码解锁 | 4x3 矩阵键盘输入 PIN，支持 `*` 清空、`#` 提交 |
-| 📶 NFC 刷卡 | 预留 PN532 / MFRC522 扩展方案，适合门禁卡解锁 |
+| 📶 NFC 刷卡 | PN532 I2C 读卡，支持 ISO14443A UID 绑定和刷卡开锁 |
 | 🔒 门锁控制 | GPIO 控制继电器/电磁锁，自动上锁计时器 |
 | 📺 OLED 显示 | SSD1306 128×64 I2C 显示屏，实时状态显示 |
 | 📶 WiFi 管理 | 支持 AP 模式（热点）和 STA 模式（连接路由器） |
@@ -22,16 +22,11 @@
 
 --- 
 
-## 密码识别与 NFC 扩展方案
+## 自研硬件方案
 
-项目已具备**矩阵键盘密码解锁基础实现**，并已整理两种 NFC/密码扩展落地路线：
+本项目默认使用 **ESP32-S3 自研主板方案**，不再保留现成摄像头开发板扩展路线。摄像头使用独立 OV2640 模组直连 DVP，并同时接入 3x4 键盘、AS608 指纹、PN532 NFC、OLED、继电器门锁、状态 LED 和蜂鸣器。
 
-- **方案 A：使用 ESP32-CAM 开发板做扩展**
-- **方案 B：从头自研 ESP32-S3 开发板**
-
-详见独立方案文档：[`PASSWORD_NFC_SOLUTIONS.md`](./PASSWORD_NFC_SOLUTIONS.md)
-
-> 说明：当前代码中密码解锁已在 `app_main.c + keypad/` 中接入；NFC 刷卡功能目前仍属于待扩展模块，建议按方案文档逐步接入 `main/nfc/`、用户卡号存储、事件和 Web API。
+完整引脚说明见 [`HARDWARE_PINOUT.md`](./HARDWARE_PINOUT.md)。
 
 ## 硬件需求
 
@@ -43,7 +38,9 @@
 | 模块 | 型号 | 接口 |
 |------|------|------|
 | 摄像头 | OV2640 (QVGA) | DVP 并口 |
+| 键盘 | 3x4 矩阵键盘 | GPIO 扫描 |
 | 指纹传感器 | AS608 / R307 / R503 | UART |
+| NFC | PN532 | I2C |
 | OLED 显示屏 | SSD1306 128×64 | I2C |
 | 门锁 | 电磁锁 / 电控锁 + 继电器 | GPIO |
 | 蜂鸣器 | 有源蜂鸣器 | GPIO (PWM) |
@@ -63,15 +60,22 @@
   HREF  → GPIO7          PCLK  → GPIO13
 
 指纹传感器 (AS608):
-  TX → GPIO43,  RX → GPIO44,  VCC → 3.3V
+  ESP TX → GPIO43 接 AS608 RX
+  ESP RX → GPIO44 接 AS608 TX
 
-OLED 显示屏 (SSD1306):
-  SDA → GPIO1,  SCL → GPIO2,  VCC → 3.3V
+OLED + PN532 共用 I2C0:
+  SDA → GPIO1,  SCL → GPIO2
+  OLED 地址 0x3C, PN532 地址 0x24
+  PN532 RSTPDN → GPIO21, IRQ → GPIO14 (可选)
 
-门锁控制:  继电器 → GPIO38 (HIGH=开锁)
-蜂鸣器:    GPIO39
-绿色LED:   GPIO40
-红色LED:   GPIO41
+3x4 矩阵键盘:
+  R1/R2/R3/R4 → GPIO33/GPIO34/GPIO35/GPIO36
+  C1/C2/C3    → GPIO37/GPIO38/GPIO39
+
+门锁控制:  继电器 → GPIO40 (HIGH=开锁)
+绿色LED:   GPIO41
+红色LED:   GPIO42
+蜂鸣器:    GPIO48
 ```
 
 > 所有引脚均可通过 `idf.py menuconfig` → **Smart Door Lock Configuration** 修改。
@@ -100,6 +104,9 @@ smart-door-lock/
 │   ├── fingerprint/
 │   │   ├── fingerprint.h             # 指纹传感器接口
 │   │   └── fingerprint.c             # AS608 UART 协议驱动
+│   ├── nfc/
+│   │   ├── nfc_reader.h              # PN532 NFC 接口
+│   │   └── nfc_reader.c              # PN532 I2C UID 读卡驱动
 │   ├── door_lock/
 │   │   ├── door_lock.h               # 门锁控制接口
 │   │   └── door_lock.c               # GPIO + 继电器 + 蜂鸣器 + LED
@@ -127,6 +134,14 @@ Core 0:                          Core 1:
 │  AS608 轮询     │              │  OV2640 摄像头      │
 │  指纹验证/录入  │              │  人脸检测+识别      │
 ├─────────────────┤              └─────────────────────┘
+│  nfc_task       │
+│  (Priority 3)   │
+│  PN532 轮询     │
+├─────────────────┤
+│  keypad_task    │
+│  (Priority 3)   │
+│  3x4 键盘扫描   │
+├─────────────────┤
 │  display_task   │
 │  (Priority 2)   │
 │  OLED 更新      │
@@ -169,7 +184,9 @@ idf.py menuconfig
 在 **Smart Door Lock Configuration** 中配置：
 - WiFi SSID 和密码
 - 摄像头引脚
+- 3x4 矩阵键盘引脚与系统 PIN
 - 指纹传感器 UART 引脚
+- PN532 NFC I2C 引脚
 - 门锁 GPIO
 - 人脸识别阈值
 
@@ -194,6 +211,7 @@ idf.py -p /dev/ttyUSB0 flash monitor
 3. **添加用户**：在 Web 界面点击"添加用户"，输入姓名
 4. **录入人脸**：通过 Web API 触发人脸录入流程
 5. **录入指纹**：将手指放在传感器上，按提示完成录入
+6. **绑定 NFC 卡**：读取卡 UID 后通过 Web API 绑定到用户
 
 ---
 
@@ -206,6 +224,8 @@ idf.py -p /dev/ttyUSB0 flash monitor
 | GET | `/api/users` | 用户列表 |
 | POST | `/api/users` | 添加用户 `{"name":"张三","role":1}` |
 | DELETE | `/api/users/{id}` | 删除用户 |
+| POST | `/api/users/{id}/nfc` | 绑定 NFC UID `{"uid":"04AABBCCDD"}` |
+| DELETE | `/api/users/{id}/nfc` | 解绑用户 NFC 卡 |
 | POST | `/api/door/unlock` | 远程开锁 |
 | POST | `/api/door/lock` | 远程上锁 |
 | GET | `/api/logs` | 访问日志 |
@@ -225,6 +245,14 @@ curl -X POST http://192.168.4.1/api/users \
 curl -X POST http://192.168.4.1/api/door/unlock
 ```
 
+### 示例：绑定 NFC 卡
+
+```bash
+curl -X POST http://192.168.4.1/api/users/1/nfc \
+  -H "Content-Type: application/json" \
+  -d '{"uid":"04AABBCCDD"}'
+```
+
 ---
 
 ## 认证流程
@@ -233,8 +261,9 @@ curl -X POST http://192.168.4.1/api/door/unlock
 用户靠近门禁
      │
      ├─── 摄像头检测到人脸 ──→ 特征提取 ──→ 数据库匹配
-     │                                          │
-     └─── 手指触碰传感器 ──→ 指纹采集 ──→ 模板匹配
+     ├─── 手指触碰传感器 ──→ 指纹采集 ──→ 模板匹配
+     ├─── 键盘输入 PIN ────→ 密码校验
+     └─── PN532 读取卡片 ──→ UID 匹配
                                                │
                               ┌────────────────┴────────────────┐
                               │ 匹配成功                         │ 匹配失败
@@ -252,7 +281,7 @@ curl -X POST http://192.168.4.1/api/door/unlock
 
 ## 安全特性
 
-- **连续失败锁定**：默认 5 次失败后锁定 5 分钟（可配置）
+- **连续失败锁定**：默认 5 次失败后锁定 60 秒（可配置）
 - **用户角色**：管理员 / 普通用户 / 访客
 - **访问日志**：记录最近 50 条访问记录（时间、用户、方式、结果）
 - **访问有效期**：可为访客设置访问过期时间
@@ -279,6 +308,14 @@ curl -X POST http://192.168.4.1/api/door/unlock
 - 通信：UART，自定义帧格式
 - 功能：录入、验证、搜索、删除、清空
 
+## NFC 刷卡说明
+
+PN532 使用 I2C 模式，默认与 OLED 共用 I2C0。系统轮询 ISO14443A 卡片 UID，命中用户绑定 UID 后统一走用户状态、有效期、失败锁定和开锁逻辑。
+
+绑定方式：
+- 通过 `/api/users/{id}/nfc` 写入 UID 十六进制字符串
+- UID 支持 `04AABBCCDD`、`04:AA:BB:CC:DD` 或带空格格式
+
 ---
 
 ## 常见问题
@@ -288,6 +325,9 @@ A: 检查 PSRAM 是否启用（`CONFIG_SPIRAM=y`），确认引脚配置正确�
 
 **Q: 指纹传感器无响应？**
 A: 检查 UART 引脚和波特率，确认传感器供电（3.3V 或 5V）。
+
+**Q: PN532 初始化失败？**
+A: 确认 PN532 已切到 I2C 模式，地址为 0x24，SDA/SCL 有 4.7k 上拉，并检查 RSTPDN/供电/共地。
 
 **Q: Web 界面无法访问？**
 A: 确认 WiFi 连接成功，查看串口日志中的 IP 地址。

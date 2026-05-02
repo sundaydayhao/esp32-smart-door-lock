@@ -390,11 +390,11 @@ void display_show_screen(display_screen_t screen, const char *param)
         case DISPLAY_SCREEN_IDLE:
             draw_string_centered(0, "Smart Door Lock");
             draw_hline(0, 10, DISPLAY_WIDTH);
-            draw_string_centered(18, "Face / finger /");
+            draw_string_centered(18, "Face/Finger/NFC");
 #if CONFIG_SDL_KEYPAD_ENABLE
-            draw_string_centered(28, "PIN to unlock");
+            draw_string_centered(28, "or PIN unlock");
 #else
-            draw_string_centered(28, "finger to unlock");
+            draw_string_centered(28, "to unlock");
 #endif
             draw_hline(0, 52, DISPLAY_WIDTH);
             draw_string_centered(55, "Ready");

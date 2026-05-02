@@ -88,7 +88,7 @@ menu "Smart Door Lock Configuration"
 
         config SDL_DOOR_LOCK_GPIO
             int "Door Lock Control GPIO Pin"
-            default 38
+            default 40
             help
                 GPIO pin to control the door lock relay/servo.
 
@@ -101,19 +101,19 @@ menu "Smart Door Lock Configuration"
 
         config SDL_BUZZER_GPIO
             int "Buzzer GPIO Pin"
-            default 39
+            default 48
             help
                 GPIO pin for buzzer.
 
         config SDL_LED_GREEN_GPIO
             int "Green LED GPIO Pin"
-            default 40
+            default 41
             help
                 GPIO pin for green LED (access granted).
 
         config SDL_LED_RED_GPIO
             int "Red LED GPIO Pin"
-            default 41
+            default 42
             help
                 GPIO pin for red LED (access denied).
 
@@ -139,43 +139,43 @@ menu "Smart Door Lock Configuration"
 
             config SDL_KEYPAD_ROW0_GPIO
                 int "Keypad Row 0 GPIO"
-                default 19
+                default 33
                 help
                     GPIO connected to matrix keypad row R1.
 
             config SDL_KEYPAD_ROW1_GPIO
                 int "Keypad Row 1 GPIO"
-                default 20
+                default 34
                 help
                     GPIO connected to matrix keypad row R2.
 
             config SDL_KEYPAD_ROW2_GPIO
                 int "Keypad Row 2 GPIO"
-                default 21
+                default 35
                 help
                     GPIO connected to matrix keypad row R3.
 
             config SDL_KEYPAD_ROW3_GPIO
                 int "Keypad Row 3 GPIO"
-                default 47
+                default 36
                 help
                     GPIO connected to matrix keypad row R4.
 
             config SDL_KEYPAD_COL0_GPIO
                 int "Keypad Col 0 GPIO"
-                default 14
+                default 37
                 help
                     GPIO connected to matrix keypad column C1.
 
             config SDL_KEYPAD_COL1_GPIO
                 int "Keypad Col 1 GPIO"
-                default 45
+                default 38
                 help
                     GPIO connected to matrix keypad column C2.
 
             config SDL_KEYPAD_COL2_GPIO
                 int "Keypad Col 2 GPIO"
-                default 46
+                default 39
                 help
                     GPIO connected to matrix keypad column C3.
 
@@ -184,6 +184,81 @@ menu "Smart Door Lock Configuration"
                 default "123456"
                 help
                     Password entered on keypad. Use digits with '#' to submit and '*' to clear.
+
+        endif
+
+        config SDL_NFC_ENABLE
+            bool "Enable PN532 NFC Card Unlock"
+            default y
+            help
+                Enable PN532 NFC reader over I2C for card UID authentication.
+
+        if SDL_NFC_ENABLE
+
+            config SDL_NFC_I2C_PORT
+                int "PN532 I2C Port"
+                default 0
+                range 0 1
+                help
+                    I2C port used by PN532. Default shares I2C0 with OLED.
+
+            config SDL_NFC_SDA_PIN
+                int "PN532 I2C SDA Pin"
+                default 1
+                help
+                    Shared I2C SDA pin for PN532 and OLED.
+
+            config SDL_NFC_SCL_PIN
+                int "PN532 I2C SCL Pin"
+                default 2
+                help
+                    Shared I2C SCL pin for PN532 and OLED.
+
+            config SDL_NFC_I2C_FREQ_HZ
+                int "PN532 I2C Frequency"
+                default 400000
+                help
+                    I2C bus frequency for PN532.
+
+            config SDL_NFC_I2C_ADDR
+                int "PN532 I2C Address"
+                default 36
+                range 1 127
+                help
+                    PN532 7-bit I2C address. 36 decimal equals 0x24.
+
+            config SDL_NFC_RST_GPIO
+                int "PN532 RSTPDN GPIO"
+                default 21
+                help
+                    PN532 reset/power-down pin. Set to -1 if not used.
+
+            config SDL_NFC_IRQ_GPIO
+                int "PN532 IRQ GPIO"
+                default 14
+                help
+                    Optional PN532 IRQ pin. Set to -1 if not connected.
+
+            config SDL_NFC_COMMAND_TIMEOUT_MS
+                int "PN532 Command Timeout (ms)"
+                default 1000
+                range 100 5000
+                help
+                    Timeout for PN532 commands.
+
+            config SDL_NFC_POLL_INTERVAL_MS
+                int "PN532 Poll Interval (ms)"
+                default 150
+                range 50 2000
+                help
+                    Delay between NFC polling attempts.
+
+            config SDL_NFC_CARD_COOLDOWN_MS
+                int "PN532 Card Cooldown (ms)"
+                default 1500
+                range 500 10000
+                help
+                    Suppression window after a card is read to avoid repeated unlocks.
 
         endif
 

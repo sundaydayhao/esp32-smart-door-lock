@@ -86,6 +86,15 @@ static uint8_t generate_user_id(void)
     return 0; /* No available ID */
 }
 
+static bool uid_matches(const uint8_t *a, uint8_t a_len,
+                        const uint8_t *b, uint8_t b_len)
+{
+    if (a == NULL || b == NULL || a_len == 0 || a_len != b_len) {
+        return false;
+    }
+    return memcmp(a, b, a_len) == 0;
+}
+
 /* ============================================================
  * NVS persistence functions
  * ============================================================ */
@@ -392,6 +401,97 @@ esp_err_t user_mgmt_find_by_fingerprint(uint8_t fingerprint_id,
         if (s_users[i].id != 0 &&
             s_users[i].fingerprint_id == fingerprint_id &&
             (s_users[i].auth_methods & SDL_AUTH_METHOD_FINGERPRINT)) {
+            memcpy(user, &s_users[i], sizeof(sdl_user_t));
+            xSemaphoreGive(s_mutex);
+            return ESP_OK;
+        }
+    }
+
+    xSemaphoreGive(s_mutex);
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t user_mgmt_bind_nfc_card(uint8_t user_id, const uint8_t *uid,
+                                   uint8_t uid_len)
+{
+    if (!s_initialized || uid == NULL ||
+        uid_len == 0 || uid_len > SDL_NFC_UID_MAX_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+
+    int idx = find_user_index(user_id);
+    if (idx < 0) {
+        xSemaphoreGive(s_mutex);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    for (int i = 0; i < SDL_USER_MAX_COUNT; i++) {
+        if (i == idx || s_users[i].id == 0 || !s_users[i].has_nfc_card) {
+            continue;
+        }
+        if (uid_matches(s_users[i].nfc_uid, s_users[i].nfc_uid_len, uid, uid_len)) {
+            ESP_LOGW(TAG, "NFC UID already bound to user %d", s_users[i].id);
+            xSemaphoreGive(s_mutex);
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+
+    memset(s_users[idx].nfc_uid, 0, sizeof(s_users[idx].nfc_uid));
+    memcpy(s_users[idx].nfc_uid, uid, uid_len);
+    s_users[idx].nfc_uid_len = uid_len;
+    s_users[idx].has_nfc_card = true;
+    s_users[idx].auth_methods |= SDL_AUTH_METHOD_NFC;
+
+    ESP_LOGI(TAG, "Bound NFC UID (%d bytes) to user '%s' (ID %d)",
+             uid_len, s_users[idx].name, user_id);
+
+    user_mgmt_save();
+    xSemaphoreGive(s_mutex);
+    return ESP_OK;
+}
+
+esp_err_t user_mgmt_unbind_nfc_card(uint8_t user_id)
+{
+    if (!s_initialized) return ESP_ERR_INVALID_STATE;
+
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+
+    int idx = find_user_index(user_id);
+    if (idx < 0) {
+        xSemaphoreGive(s_mutex);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    memset(s_users[idx].nfc_uid, 0, sizeof(s_users[idx].nfc_uid));
+    s_users[idx].nfc_uid_len = 0;
+    s_users[idx].has_nfc_card = false;
+    s_users[idx].auth_methods &= ~SDL_AUTH_METHOD_NFC;
+
+    ESP_LOGI(TAG, "Unbound NFC card from user '%s' (ID %d)",
+             s_users[idx].name, user_id);
+
+    user_mgmt_save();
+    xSemaphoreGive(s_mutex);
+    return ESP_OK;
+}
+
+esp_err_t user_mgmt_find_by_nfc_uid(const uint8_t *uid, uint8_t uid_len,
+                                     sdl_user_t *user)
+{
+    if (!s_initialized || uid == NULL || user == NULL ||
+        uid_len == 0 || uid_len > SDL_NFC_UID_MAX_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+
+    for (int i = 0; i < SDL_USER_MAX_COUNT; i++) {
+        if (s_users[i].id != 0 &&
+            s_users[i].has_nfc_card &&
+            (s_users[i].auth_methods & SDL_AUTH_METHOD_NFC) &&
+            uid_matches(s_users[i].nfc_uid, s_users[i].nfc_uid_len, uid, uid_len)) {
             memcpy(user, &s_users[i], sizeof(sdl_user_t));
             xSemaphoreGive(s_mutex);
             return ESP_OK;

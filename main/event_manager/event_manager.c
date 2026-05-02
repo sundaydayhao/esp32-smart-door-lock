@@ -17,9 +17,6 @@ ESP_EVENT_DEFINE_BASE(SDL_DOOR_EVENTS);
 ESP_EVENT_DEFINE_BASE(SDL_AUTH_EVENTS);
 ESP_EVENT_DEFINE_BASE(SDL_SYSTEM_EVENTS);
 
-/* Default event loop handle */
-static esp_event_loop_handle_t s_event_loop = NULL;
-
 esp_err_t event_manager_init(void)
 {
     ESP_LOGI(TAG, "Initializing event manager");
