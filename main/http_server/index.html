@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Smart Door Lock</title>
+    <style>
+        :root {
+            --bg-top: #08131f;
+            --bg-bottom: #12263f;
+            --panel: rgba(8, 22, 37, 0.78);
+            --panel-border: rgba(125, 165, 197, 0.18);
+            --text: #edf3f7;
+            --muted: #97acbc;
+            --accent: #f2b84b;
+            --accent-2: #49c0b6;
+            --danger: #e86c5d;
+            --ok: #43c17a;
+            --shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(73, 192, 182, 0.28), transparent 28%),
+                radial-gradient(circle at top right, rgba(242, 184, 75, 0.24), transparent 26%),
+                linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
+        }
+
+        .shell {
+            width: min(1120px, calc(100% - 24px));
+            margin: 0 auto;
+            padding: 24px 0 32px;
+        }
+
+        .hero {
+            display: grid;
+            gap: 16px;
+            padding: 24px;
+            border: 1px solid var(--panel-border);
+            border-radius: 24px;
+            background: linear-gradient(180deg, rgba(10, 28, 45, 0.9), rgba(9, 20, 33, 0.75));
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(10px);
+        }
+
+        .hero-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(242, 184, 75, 0.28);
+            background: rgba(242, 184, 75, 0.12);
+            color: #ffe1a1;
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(32px, 5vw, 56px);
+            line-height: 0.95;
+            letter-spacing: 0.04em;
+        }
+
+        .subtitle {
+            margin: 0;
+            color: var(--muted);
+            max-width: 760px;
+            line-height: 1.6;
+        }
+
+        .door-panel {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+            padding: 18px 20px;
+            border-radius: 18px;
+            border: 1px solid var(--panel-border);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .door-state {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+
+        .state-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 10px 16px;
+            border-radius: 999px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .state-pill.locked {
+            background: rgba(232, 108, 93, 0.18);
+            color: #ffc0b5;
+            border: 1px solid rgba(232, 108, 93, 0.32);
+        }
+
+        .state-pill.unlocked {
+            background: rgba(67, 193, 122, 0.18);
+            color: #b9f2cc;
+            border: 1px solid rgba(67, 193, 122, 0.32);
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            appearance: none;
+            border: 0;
+            border-radius: 14px;
+            padding: 12px 18px;
+            color: #041018;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 140ms ease, opacity 140ms ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: wait;
+            transform: none;
+        }
+
+        .btn-accent {
+            background: linear-gradient(135deg, #f2b84b, #ffd777);
+        }
+
+        .btn-ok {
+            background: linear-gradient(135deg, #43c17a, #84e6ac);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #d95e58, #ff9d8f);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .card {
+            grid-column: span 12;
+            padding: 18px;
+            border-radius: 22px;
+            border: 1px solid var(--panel-border);
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(10px);
+        }
+
+        .card h2 {
+            margin: 0 0 14px;
+            font-size: 18px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--accent);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+        }
+
+        .stat {
+            padding: 14px;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .stat-label {
+            color: var(--muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .stat-value {
+            margin-top: 8px;
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .meta {
+            margin-top: 14px;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        th,
+        td {
+            padding: 10px 8px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        th {
+            color: var(--muted);
+            font-size: 12px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        tr:last-child td {
+            border-bottom: 0;
+        }
+
+        .tag {
+            display: inline-flex;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: rgba(73, 192, 182, 0.14);
+            color: #9be8df;
+            margin-right: 6px;
+            margin-bottom: 4px;
+            font-size: 12px;
+        }
+
+        .status-ok {
+            color: var(--ok);
+            font-weight: 700;
+        }
+
+        .status-bad {
+            color: var(--danger);
+            font-weight: 700;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+        }
+
+        .message {
+            min-height: 22px;
+            color: var(--muted);
+        }
+
+        .small-btn {
+            padding: 8px 12px;
+            border-radius: 10px;
+            font-size: 12px;
+        }
+
+        @media (min-width: 900px) {
+            .span-5 {
+                grid-column: span 5;
+            }
+
+            .span-7 {
+                grid-column: span 7;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="shell">
+        <section class="hero">
+            <div class="hero-top">
+                <div class="badge">Smart Door Lock Console</div>
+                <div class="message" id="message"></div>
+            </div>
+            <div>
+                <h1>Entry Control</h1>
+                <p class="subtitle">
+                    Live view of door state, user records, and access history. The page polls
+                    the device every 5 seconds and lets you trigger remote lock actions directly.
+                </p>
+            </div>
+            <div class="door-panel">
+                <div class="door-state">
+                    <div>
+                        <div class="stat-label">Door Status</div>
+                        <div class="stat-value" id="door-state-text">LOCKED</div>
+                    </div>
+                    <span class="state-pill locked" id="door-state-pill">Locked</span>
+                </div>
+                <div class="actions">
+                    <button class="btn-ok" id="unlock-btn">Unlock</button>
+                    <button class="btn-danger" id="lock-btn">Lock</button>
+                    <button class="btn-accent" id="refresh-btn">Refresh</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="grid">
+            <article class="card span-5">
+                <h2>System Snapshot</h2>
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-label">Users</div>
+                        <div class="stat-value" id="stat-users">0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Faces</div>
+                        <div class="stat-value" id="stat-faces">0</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Uptime</div>
+                        <div class="stat-value" id="stat-uptime">0s</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-label">Failures</div>
+                        <div class="stat-value" id="stat-failures">0</div>
+                    </div>
+                </div>
+                <div class="meta" id="system-meta">Loading status...</div>
+            </article>
+
+            <article class="card span-7">
+                <div class="toolbar">
+                    <h2>Users</h2>
+                    <div class="stat-label" id="users-count">0 records</div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Role</th>
+                            <th>Methods</th>
+                            <th>Accesses</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-body"></tbody>
+                </table>
+            </article>
+
+            <article class="card">
+                <div class="toolbar">
+                    <h2>Access Log</h2>
+                    <div class="stat-label" id="logs-count">0 entries</div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>User</th>
+                            <th>Method</th>
+                            <th>Result</th>
+                            <th>Confidence</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logs-body"></tbody>
+                </table>
+            </article>
+        </section>
+    </main>
+
+    <script>
+        const roleNames = ["Admin", "User", "Guest"];
+
+        function setMessage(text, isError) {
+            const el = document.getElementById("message");
+            el.textContent = text || "";
+            el.className = "message " + (isError ? "status-bad" : "");
+        }
+
+        function formatUptime(seconds) {
+            const s = Number(seconds) || 0;
+            const h = Math.floor(s / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            const sec = s % 60;
+            if (h > 0) return `${h}h ${m}m ${sec}s`;
+            if (m > 0) return `${m}m ${sec}s`;
+            return `${sec}s`;
+        }
+
+        function authTags(mask) {
+            const tags = [];
+            if (mask & 1) tags.push("Face");
+            if (mask & 2) tags.push("Fingerprint");
+            if (mask & 4) tags.push("PIN");
+            return tags.length ? tags : ["None"];
+        }
+
+        function authMethodName(method) {
+            if (method === 1) return "Face";
+            if (method === 2) return "Fingerprint";
+            if (method === 4) return "PIN";
+            return "Unknown";
+        }
+
+        async function apiRequest(url, options) {
+            const response = await fetch(url, options);
+            const payload = await response.json();
+            if (!response.ok || payload.success === false) {
+                throw new Error(payload.error || payload.message || "Request failed");
+            }
+            return payload;
+        }
+
+        function updateDoorStatus(status) {
+            const pill = document.getElementById("door-state-pill");
+            const text = document.getElementById("door-state-text");
+            const locked = Boolean(status.door_locked);
+
+            text.textContent = locked ? "LOCKED" : "UNLOCKED";
+            pill.textContent = locked ? "Locked" : "Unlocked";
+            pill.className = "state-pill " + (locked ? "locked" : "unlocked");
+
+            document.getElementById("stat-users").textContent = status.user_count ?? 0;
+            document.getElementById("stat-faces").textContent = status.enrolled_faces ?? 0;
+            document.getElementById("stat-uptime").textContent = formatUptime(status.uptime_s);
+            document.getElementById("stat-failures").textContent = status.failed_attempts ?? 0;
+
+            document.getElementById("system-meta").innerHTML =
+                `WiFi: ${status.wifi_connected ? status.ip_addr : "Offline"}<br>` +
+                `Camera: ${status.camera_ready ? "Ready" : "Unavailable"}<br>` +
+                `Lockout: ${status.locked_out ? "Active" : "No"}<br>` +
+                `Total accesses: ${status.total_accesses ?? 0} | Total denials: ${status.total_denials ?? 0}`;
+        }
+
+        function renderUsers(users) {
+            const body = document.getElementById("users-body");
+            document.getElementById("users-count").textContent = `${users.length} records`;
+            body.innerHTML = "";
+
+            users.forEach((user) => {
+                const row = document.createElement("tr");
+                const methods = authTags(user.auth_methods)
+                    .map((name) => `<span class="tag">${name}</span>`)
+                    .join("");
+
+                row.innerHTML =
+                    `<td>${user.id}</td>` +
+                    `<td>${user.name}</td>` +
+                    `<td>${roleNames[user.role] || "Unknown"}</td>` +
+                    `<td>${methods}</td>` +
+                    `<td>${user.access_count}</td>` +
+                    `<td><button class="btn-danger small-btn" data-user-id="${user.id}">Delete</button></td>`;
+
+                body.appendChild(row);
+            });
+
+            body.querySelectorAll("button[data-user-id]").forEach((button) => {
+                button.addEventListener("click", async () => {
+                    const id = button.getAttribute("data-user-id");
+                    if (!confirm(`Delete user ${id}?`)) return;
+                    try {
+                        await apiRequest(`/api/users/${id}`, { method: "DELETE" });
+                        setMessage(`User ${id} deleted`, false);
+                        await loadData();
+                    } catch (error) {
+                        setMessage(error.message, true);
+                    }
+                });
+            });
+        }
+
+        function renderLogs(logs) {
+            const body = document.getElementById("logs-body");
+            document.getElementById("logs-count").textContent = `${logs.length} entries`;
+            body.innerHTML = "";
+
+            logs.forEach((log) => {
+                const row = document.createElement("tr");
+                row.innerHTML =
+                    `<td>${new Date((log.timestamp || 0) * 1000).toLocaleString()}</td>` +
+                    `<td>${log.user_id}</td>` +
+                    `<td>${authMethodName(log.auth_method)}</td>` +
+                    `<td class="${log.success ? "status-ok" : "status-bad"}">${log.success ? "OK" : "Denied"}</td>` +
+                    `<td>${log.confidence ?? 0}</td>`;
+                body.appendChild(row);
+            });
+        }
+
+        async function sendDoorCommand(url, label) {
+            try {
+                setMessage(`${label}...`, false);
+                await apiRequest(url, { method: "POST" });
+                setMessage(`${label} complete`, false);
+                await loadData();
+            } catch (error) {
+                setMessage(error.message, true);
+            }
+        }
+
+        async function loadData() {
+            try {
+                const [status, users, logs] = await Promise.all([
+                    apiRequest("/api/status"),
+                    apiRequest("/api/users"),
+                    apiRequest("/api/logs")
+                ]);
+
+                updateDoorStatus(status);
+                renderUsers(users.users || []);
+                renderLogs(logs.logs || []);
+                if (!document.getElementById("message").textContent.includes("...")) {
+                    setMessage(`Updated ${new Date().toLocaleTimeString()}`, false);
+                }
+            } catch (error) {
+                setMessage(error.message, true);
+            }
+        }
+
+        document.getElementById("unlock-btn").addEventListener("click", () => {
+            sendDoorCommand("/api/door/unlock", "Unlock request");
+        });
+
+        document.getElementById("lock-btn").addEventListener("click", () => {
+            sendDoorCommand("/api/door/lock", "Lock request");
+        });
+
+        document.getElementById("refresh-btn").addEventListener("click", loadData);
+
+        loadData();
+        setInterval(loadData, 5000);
+    </script>
+</body>
+</html>

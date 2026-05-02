@@ -1,0 +1,14 @@
+## IDF Component Manager manifest for Smart Door Lock
+## This file declares external component dependencies
+
+dependencies:
+  ## ESP-IDF version requirement
+  idf:
+    version: ">=5.0.0"
+
+  ## ESP32 Camera driver (esp32-camera)
+  espressif/esp32-camera:
+    version: "2.1.5"
+
+  ## cJSON (usually bundled with IDF, listed for clarity)
+  ## idf_component_manager/cjson is part of IDF

@@ -1,0 +1,261 @@
+menu "Smart Door Lock Configuration"
+
+    menu "Hardware Configuration"
+
+        config SDL_CAMERA_PIN_PWDN
+            int "Camera PWDN Pin"
+            default -1
+            help
+                Camera power down pin. Set to -1 if not used.
+
+        config SDL_CAMERA_PIN_RESET
+            int "Camera Reset Pin"
+            default -1
+            help
+                Camera reset pin. Set to -1 if not used.
+
+        config SDL_CAMERA_PIN_XCLK
+            int "Camera XCLK Pin"
+            default 15
+            help
+                Camera external clock pin.
+
+        config SDL_CAMERA_PIN_SIOD
+            int "Camera SIOD (SDA) Pin"
+            default 4
+            help
+                Camera SCCB data pin.
+
+        config SDL_CAMERA_PIN_SIOC
+            int "Camera SIOC (SCL) Pin"
+            default 5
+            help
+                Camera SCCB clock pin.
+
+        config SDL_CAMERA_PIN_D7
+            int "Camera D7 Pin"
+            default 16
+        config SDL_CAMERA_PIN_D6
+            int "Camera D6 Pin"
+            default 17
+        config SDL_CAMERA_PIN_D5
+            int "Camera D5 Pin"
+            default 18
+        config SDL_CAMERA_PIN_D4
+            int "Camera D4 Pin"
+            default 12
+        config SDL_CAMERA_PIN_D3
+            int "Camera D3 Pin"
+            default 10
+        config SDL_CAMERA_PIN_D2
+            int "Camera D2 Pin"
+            default 8
+        config SDL_CAMERA_PIN_D1
+            int "Camera D1 Pin"
+            default 9
+        config SDL_CAMERA_PIN_D0
+            int "Camera D0 Pin"
+            default 11
+
+        config SDL_CAMERA_PIN_VSYNC
+            int "Camera VSYNC Pin"
+            default 6
+        config SDL_CAMERA_PIN_HREF
+            int "Camera HREF Pin"
+            default 7
+        config SDL_CAMERA_PIN_PCLK
+            int "Camera PCLK Pin"
+            default 13
+
+        config SDL_FINGERPRINT_UART_NUM
+            int "Fingerprint Sensor UART Number"
+            default 1
+            range 0 2
+            help
+                UART port number for fingerprint sensor (AS608/R307).
+
+        config SDL_FINGERPRINT_UART_TX
+            int "Fingerprint Sensor UART TX Pin"
+            default 43
+            help
+                TX pin for fingerprint sensor UART.
+
+        config SDL_FINGERPRINT_UART_RX
+            int "Fingerprint Sensor UART RX Pin"
+            default 44
+            help
+                RX pin for fingerprint sensor UART.
+
+        config SDL_DOOR_LOCK_GPIO
+            int "Door Lock Control GPIO Pin"
+            default 38
+            help
+                GPIO pin to control the door lock relay/servo.
+
+        config SDL_DOOR_LOCK_ACTIVE_LEVEL
+            int "Door Lock Active Level"
+            default 1
+            range 0 1
+            help
+                GPIO level when door is unlocked (1=HIGH, 0=LOW).
+
+        config SDL_BUZZER_GPIO
+            int "Buzzer GPIO Pin"
+            default 39
+            help
+                GPIO pin for buzzer.
+
+        config SDL_LED_GREEN_GPIO
+            int "Green LED GPIO Pin"
+            default 40
+            help
+                GPIO pin for green LED (access granted).
+
+        config SDL_LED_RED_GPIO
+            int "Red LED GPIO Pin"
+            default 41
+            help
+                GPIO pin for red LED (access denied).
+
+        config SDL_DISPLAY_SDA_PIN
+            int "Display I2C SDA Pin"
+            default 1
+            help
+                I2C SDA pin for OLED display.
+
+        config SDL_DISPLAY_SCL_PIN
+            int "Display I2C SCL Pin"
+            default 2
+            help
+                I2C SCL pin for OLED display.
+
+        config SDL_KEYPAD_ENABLE
+            bool "Enable Matrix Keypad Password Unlock"
+            default y
+            help
+                Enable 4x3 matrix keypad scanning and password unlock.
+
+        if SDL_KEYPAD_ENABLE
+
+            config SDL_KEYPAD_ROW0_GPIO
+                int "Keypad Row 0 GPIO"
+                default 19
+                help
+                    GPIO connected to matrix keypad row R1.
+
+            config SDL_KEYPAD_ROW1_GPIO
+                int "Keypad Row 1 GPIO"
+                default 20
+                help
+                    GPIO connected to matrix keypad row R2.
+
+            config SDL_KEYPAD_ROW2_GPIO
+                int "Keypad Row 2 GPIO"
+                default 21
+                help
+                    GPIO connected to matrix keypad row R3.
+
+            config SDL_KEYPAD_ROW3_GPIO
+                int "Keypad Row 3 GPIO"
+                default 47
+                help
+                    GPIO connected to matrix keypad row R4.
+
+            config SDL_KEYPAD_COL0_GPIO
+                int "Keypad Col 0 GPIO"
+                default 14
+                help
+                    GPIO connected to matrix keypad column C1.
+
+            config SDL_KEYPAD_COL1_GPIO
+                int "Keypad Col 1 GPIO"
+                default 45
+                help
+                    GPIO connected to matrix keypad column C2.
+
+            config SDL_KEYPAD_COL2_GPIO
+                int "Keypad Col 2 GPIO"
+                default 46
+                help
+                    GPIO connected to matrix keypad column C3.
+
+            config SDL_KEYPAD_PASSWORD
+                string "Keypad Unlock Password"
+                default "123456"
+                help
+                    Password entered on keypad. Use digits with '#' to submit and '*' to clear.
+
+        endif
+
+    endmenu
+
+    menu "WiFi Configuration"
+
+        config SDL_WIFI_SSID
+            string "WiFi SSID"
+            default "SmartDoorLock_AP"
+            help
+                WiFi SSID for AP mode or STA mode connection.
+
+        config SDL_WIFI_PASSWORD
+            string "WiFi Password"
+            default "12345678"
+            help
+                WiFi password.
+
+        config SDL_WIFI_AP_MODE
+            bool "Start in AP Mode"
+            default y
+            help
+                If enabled, device starts as WiFi Access Point.
+                If disabled, device connects to existing WiFi network.
+
+        config SDL_WIFI_MAX_RETRY
+            int "WiFi Connection Max Retry"
+            default 5
+            help
+                Maximum number of WiFi connection retries in STA mode.
+
+    endmenu
+
+    menu "Security Configuration"
+
+        config SDL_FACE_RECOGNITION_THRESHOLD
+            int "Face Recognition Threshold (x100)"
+            default 70
+            range 50 99
+            help
+                Face recognition confidence threshold (percentage x100).
+                Higher value = more strict matching.
+
+        config SDL_MAX_USERS
+            int "Maximum Number of Users"
+            default 10
+            range 1 50
+            help
+                Maximum number of users that can be enrolled.
+
+        config SDL_DOOR_UNLOCK_DURATION_MS
+            int "Door Unlock Duration (ms)"
+            default 5000
+            range 1000 30000
+            help
+                Duration in milliseconds to keep door unlocked after authentication.
+
+        config SDL_MAX_FAILED_ATTEMPTS
+            int "Maximum Failed Authentication Attempts"
+            default 5
+            range 3 10
+            help
+                Maximum consecutive failed attempts before lockout.
+
+        config SDL_LOCKOUT_DURATION_S
+            int "Lockout Duration (seconds)"
+            default 60
+            range 30 3600
+            help
+                Duration in seconds to lock out after max failed attempts.
+
+    endmenu
+
+endmenu
